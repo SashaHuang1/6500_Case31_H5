@@ -1,0 +1,132 @@
+---
+title: "IC-Case 31: Hypothesis Testing (H5a-H5d)"
+subtitle: "Employees Federal Credit Union | Multiple Regression"
+format:
+  html:
+    toc: true
+    theme: cosmo
+    code-fold: false
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+# 1. Introduction
+
+The Employees Federal Credit Union (EFCU) case investigates members' views of credit union services and operations. This report examines whether confidentiality, prompt loan processing, adequacy of services, and loan application simplicity predict members' overall evaluations of EFCU management and operations. A multiple regression evaluates all four predictors simultaneously.
+
+# 2. Research Hypotheses
+
+- **H5a:** Belief that EFCU keeps personal financial information confidential positively influences overall attitudes toward operational efficiency (Q31).
+- **H5b:** Perceived promptness of loan application processing positively influences overall attitudes toward operational efficiency (Q32).
+- **H5c:** Perceived adequacy of financial services in meeting member needs positively influences overall attitudes toward operational efficiency (Q33).
+- **H5d:** Perceived simplicity and ease of loan applications positively influences overall attitudes toward operational efficiency (Q34).
+
+The dependent variable is **Q37_r**, the recoded overall evaluation of EFCU management and operations. The original Q37 scale codes excellent = 1 through very poor = 5; the recoded variable must be verified to ensure that higher values represent more positive evaluations. Q31-Q34 use 1 = strongly disagree through 5 = strongly agree.
+
+# 3. Data Preparation
+
+```{r}
+library(haven)
+library(dplyr)
+library(knitr)
+
+file <- "Case 31 Data_efcu_4.sav"
+if (!file.exists(file)) stop("Place the supplied .sav file in the same folder as this QMD file.")
+raw <- read_sav(file)
+needed <- c("Q37_r", "Q31", "Q32", "Q33", "Q34")
+# SPSS names may be lowercase (q31) or uppercase (Q31).
+actual <- names(raw)[match(tolower(needed), tolower(names(raw)))]
+if (anyNA(actual)) {
+  stop(paste("Missing required variables:", paste(needed[is.na(actual)], collapse = ", "),
+             "\nAvailable names:", paste(names(raw), collapse = ", ")))
+}
+for (i in seq_along(needed)) names(raw)[names(raw) == actual[i]] <- needed[i]
+cat("Matched variables:", paste(needed, collapse = ", "), "\n")
+# Convert SPSS user-defined missing codes to NA, then labelled values to numeric.
+data <- raw |>
+  mutate(across(all_of(needed), ~ as.numeric(zap_labels(zap_missing(.x)))))
+
+kable(data.frame(variable = needed,
+                 observed_min = sapply(data[needed], function(x) min(x, na.rm=TRUE)),
+                 observed_max = sapply(data[needed], function(x) max(x, na.rm=TRUE)),
+                 missing = sapply(data[needed], function(x) sum(is.na(x)))))
+
+# Verify the direction of the recoded dependent variable against original Q37.
+if ("Q37" %in% names(raw)) {
+  print(table(original_Q37 = as.numeric(zap_labels(zap_missing(raw$Q37))),
+              recoded_Q37 = data$Q37_r, useNA = "ifany"))
+}
+```
+
+**Coding check:** The regression and positive-direction conclusions below assume that a higher Q37_r score means a better overall evaluation. Inspect the Q37-to-Q37_r cross-tabulation above before interpreting signs. If Q37_r is not coded in the positive direction, recode it correctly before proceeding.
+
+# 4. Multiple Regression
+
+The model is $Q37\_r = \beta_0 + \beta_1 Q31 + \beta_2 Q32 + \beta_3 Q33 + \beta_4 Q34 + \epsilon$.
+
+```{r}
+analysis <- data |> select(all_of(needed)) |> na.omit()
+cat("Complete cases:", nrow(analysis), "of", nrow(data), "\n")
+stopifnot(nrow(analysis) > 5)
+model <- lm(Q37_r ~ Q31 + Q32 + Q33 + Q34, data = analysis)
+summary(model)
+```
+
+## Regression Coefficients
+
+```{r}
+coef_table <- as.data.frame(summary(model)$coefficients)
+coef_table$Predictor <- rownames(coef_table)
+rownames(coef_table) <- NULL
+names(coef_table)[1:4] <- c("Estimate", "Std. Error", "t value", "p value")
+kable(coef_table[, c("Predictor", "Estimate", "Std. Error", "t value", "p value")], digits = 4)
+```
+
+## Model Fit
+
+```{r}
+s <- summary(model)
+cat(sprintf("R-squared: %.3f; Adjusted R-squared: %.3f\n", s$r.squared, s$adj.r.squared))
+cat(sprintf("F(%d, %d) = %.3f, p = %.4g\n", s$fstatistic[2], s$fstatistic[3], s$fstatistic[1], pf(s$fstatistic[1], s$fstatistic[2], s$fstatistic[3], lower.tail=FALSE)))
+```
+
+# 5. Hypothesis Tests and Interpretation
+
+A directional hypothesis is supported at the 5% significance level only if the estimated coefficient is **positive** and its **p-value is below 0.05**, assuming higher Q37_r means a more positive evaluation. The coefficients describe conditional associations; the survey design does not establish causation.
+
+```{r}
+labels <- c(Q31 = "H5a: Confidentiality", Q32 = "H5b: Processing promptness",
+            Q33 = "H5c: Service adequacy", Q34 = "H5d: Application simplicity")
+for (v in names(labels)) {
+  b <- coef(model)[v]
+  p <- coef(summary(model))[v, "Pr(>|t|)"]
+  result <- if (is.na(p)) "Not estimable" else if (b > 0 && p < .05) "Supported" else "Not supported"
+  cat(sprintf("%s: b = %.3f, p = %.4f. %s.\n\n", labels[v], b, p, result))
+}
+```
+
+# 6. Diagnostics and Limitations
+
+```{r}
+par(mfrow=c(2,2))
+plot(model)
+par(mfrow=c(1,1))
+```
+
+Because the measures are single survey items, interpretations should consider measurement error and common-method bias. Missing observations are excluded listwise. Inspect residual patterns, influential observations, and potential multicollinearity before relying on the model. Coefficients should not be interpreted as causal effects.
+
+# 7. Conclusion
+
+```{r}
+cat(sprintf("The model explains %.1f%% of variation in overall evaluations (R-squared = %.3f). ", 100*summary(model)$r.squared, summary(model)$r.squared))
+cat("Individual hypothesis decisions are reported in Section 5. These findings describe associations conditional on the other three predictors, not proof of causal influence.\n")
+```
+
+# Appendix: Repository and Publication
+
+- **GitHub Repository:** [ADD ACTUAL REPOSITORY URL AFTER UPLOAD]
+- **GitHub Pages:** [ADD ACTUAL PUBLISHED URL AFTER DEPLOYMENT]
+
+
